@@ -8,6 +8,7 @@
 #include "bootloader_random.h"
 
 #include "crc32.h"
+#include "protocol.h"
 
 #define ECHO_TEST_TXD (GPIO_NUM_17)
 #define ECHO_TEST_RXD (GPIO_NUM_16)
@@ -27,6 +28,7 @@
 #define UART_BUF_SIZE 128
 
 uint8_t RandomNumberBuffer[32];
+uint8_t IV[16];
 
 void GPIO_init()
 {
@@ -208,9 +210,11 @@ extern "C" void app_main()
     gpio_set_level(BT_KEY, ESP_GPIO_LEVEL_LOW);
 
     //------------------main loop---------------
+    protocol frame;
     bootloader_random_enable(); // when use wifi or bluetooth it must me disable
-    GetRandomNumbers(RandomNumberBuffer,32);
-
+    GetRandomNumbers(frame.,32);
+    GetRandomNumbers(IV,16);
+    
     while (true)
     {
         if (gpio_get_level(BT_STATE) == ESP_GPIO_LEVEL_HIGH)
