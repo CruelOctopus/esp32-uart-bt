@@ -10,6 +10,16 @@
 #include "crc32.h"
 #include "protocol.h"
 
+#include "hwcrypto/aes.h"
+//#include "crypto/includes.h"
+#include "mbedtls/md.h"
+//#include "crypto/common.h"
+#include "mbedtls/aes.h"
+//#include "mbedtls/esp_aes.h"
+//#include "crypto/aes_wrap.h"
+
+#include <string.h>
+
 #define ECHO_TEST_TXD (GPIO_NUM_17)
 #define ECHO_TEST_RXD (GPIO_NUM_16)
 #define ECHO_TEST_RTS (UART_PIN_NO_CHANGE)
@@ -114,6 +124,7 @@ extern "C" void app_main()
     gpio_set_level(BT_RESET, ESP_GPIO_LEVEL_LOW);
     vTaskDelay(pdMS_TO_TICKS(500));
     //----------- AT-CMD-MODE------
+    /*
     ESP_LOGI("UART1", "Enter AT-CMD-MODE");
     ESP_LOGI("UART1", "%s", CMD_AT);
     uart_write_bytes(UART_NUM_1, CMD_AT, 6);
@@ -206,15 +217,70 @@ extern "C" void app_main()
     }
     len = uart_read_bytes(UART_NUM_1, UART_data, UART_BUF_SIZE, 200 / portTICK_RATE_MS);
     printf("%s", UART_data);
-
+*/
     gpio_set_level(BT_KEY, ESP_GPIO_LEVEL_LOW);
 
     //------------------main loop---------------
-    protocol frame;
+    FirstFrame frame;
+    printf(" 1 ");
     bootloader_random_enable(); // when use wifi or bluetooth it must me disable
-    GetRandomNumbers(frame.,32);
-    GetRandomNumbers(IV,16);
+    printf(" 2 ");
+    GetRandomNumbers(frame.RandomData,32);
+    printf(" 3 ");
+    GetRandomNumbers(frame.AESIV,16);
+    printf(" 4 ");
+    memset(frame.Synchro,SYNCHRO,8);
+    printf(" 5 ");
+    //uint32_t b = 0xaabbccdd;
+
+    frame.CRC32 = crc32(&frame,56,0);
+    printf(" 6 ");
+
+    for (int i=0;i<32;i++){
+        RandomNumberBuffer[i] = i;
+    }
+    for (int i=0;i<16;i++){
+        IV[i] = i;
+    }
     
+    mbedtls_aes_context ctx;
+	mbedtls_aes_init( &ctx );
+	mbedtls_aes_setkey_enc( &ctx, RandomNumberBuffer, 256 );
+    mbedtls_aes_crypt_cbc( &ctx, ESP_AES_ENCRYPT, sizeof(RandomNumberBuffer), IV, (uint8_t*)RandomNumberBuffer, (uint8_t*)frame.RandomData );
+    mbedtls_aes_free( &ctx );
+
+     printf(" 7 ");
+
+   esp_log_buffer_hex("frame",&frame,60);
+
+   //-----------debug---------
+  /*
+  char str[3];
+  for (int i = 0; i < sizeof(frame.Synchro); i++)
+  {
+    sprintf(str, "%02x", (frame.Synchro[i]));   
+    printf("%s ",str);
+  }
+    for (int i = 0; i < sizeof(frame.AESIV); i++)
+  {
+    sprintf(str, "%02x", (frame.AESIV[i]));   
+    printf("%s ",str);
+  }
+  printf(" 6.5 ");
+    for (int i = 0; i < 32; i++)
+  {
+    sprintf(str, "%02x", (frame.RandomData[i]));   
+    printf("%s ",str);
+  }
+  printf(" 7 ");
+      for (int i = 0; i < sizeof(frame.CRC32); i++)
+  {
+    sprintf(str, "%02x", *(int *)(frame.CRC32));   
+    printf("%s ",str);
+  }
+  */
+//-----------debug---------
+    uart_write_bytes(UART_NUM_1,(const char *)&frame ,sizeof(frame));
     while (true)
     {
         if (gpio_get_level(BT_STATE) == ESP_GPIO_LEVEL_HIGH)
