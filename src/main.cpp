@@ -10,13 +10,12 @@
 #include "crc32.h"
 #include "protocol.h"
 
-#include "hwcrypto/aes.h"
-//#include "crypto/includes.h"
-#include "mbedtls/md.h"
-//#include "crypto/common.h"
+
 #include "mbedtls/aes.h"
-//#include "mbedtls/esp_aes.h"
-//#include "crypto/aes_wrap.h"
+#include "mbedtls/md.h"
+
+
+
 
 #include <string.h>
 
@@ -37,8 +36,17 @@
 
 #define UART_BUF_SIZE 128
 
-uint8_t RandomNumberBuffer[32];
+uint8_t RandomNumberBuffe32[32];
+uint8_t RandomNumberBuffe16[16];
 uint8_t IV[16];
+uint8_t AESKEY[32]; //256 bit key
+//uint8_t AESKEY[16]; //128 bit key
+
+uint8_t hmacSHA256Result[32];
+
+uint8_t BKeyLen = 64;
+uint8_t HMAC256ByteKey[64];
+uint8_t HMAC256ByteKeyForIV[64];
 
 void GPIO_init()
 {
@@ -96,6 +104,24 @@ void GetRandomNumbers(uint8_t *buffer, uint8_t size)
     {
         *(Bp + i) = esp_random();
     }
+}
+void Hmac256Calculate(uint8_t *key, uint8_t keyLength, uint8_t *payload, uint8_t payloadLength, uint8_t *hmacResult)
+{
+  //char *key = "secretKey";
+  //char *payload = "Hello HMAC SHA 256!";
+
+  mbedtls_md_context_t ctx;
+  mbedtls_md_type_t md_type = MBEDTLS_MD_SHA256;
+
+  //const size_t payloadLength = strlen((char*)payload);
+  //const size_t keyLength = strlen((char*)key);
+
+  mbedtls_md_init(&ctx);
+  mbedtls_md_setup(&ctx, mbedtls_md_info_from_type(md_type), 1);
+  mbedtls_md_hmac_starts(&ctx, (const unsigned char *)key, keyLength);
+  mbedtls_md_hmac_update(&ctx, (const unsigned char *)payload, payloadLength);
+  mbedtls_md_hmac_finish(&ctx, hmacResult);
+  mbedtls_md_free(&ctx);
 }
 extern "C" void app_main()
 {
@@ -225,34 +251,38 @@ extern "C" void app_main()
     printf(" 1 ");
     bootloader_random_enable(); // when use wifi or bluetooth it must me disable
     printf(" 2 ");
-    GetRandomNumbers(frame.RandomData,32);
+    GetRandomNumbers(RandomNumberBuffe32,32); //fill random buffer 
     printf(" 3 ");
-    GetRandomNumbers(frame.AESIV,16);
+    GetRandomNumbers(RandomNumberBuffe16,16); //fill random buffer 
     printf(" 4 ");
-    memset(frame.Synchro,SYNCHRO,8);
+   // memset(frame.Synchro,SYNCHRO,8);
     printf(" 5 ");
     //uint32_t b = 0xaabbccdd;
-
+    
     frame.CRC32 = crc32(&frame,56,0);
     printf(" 6 ");
 
     for (int i=0;i<32;i++){
-        RandomNumberBuffer[i] = i;
+        RandomNumberBuffer32[i] = i;
     }
     for (int i=0;i<16;i++){
         IV[i] = i;
     }
-    
+
+    uint8_t buffer[1024];
+    memset(buffer,0x00,sizeof(buffer));
     mbedtls_aes_context ctx;
 	mbedtls_aes_init( &ctx );
-	mbedtls_aes_setkey_enc( &ctx, RandomNumberBuffer, 256 );
-    mbedtls_aes_crypt_cbc( &ctx, ESP_AES_ENCRYPT, sizeof(RandomNumberBuffer), IV, (uint8_t*)RandomNumberBuffer, (uint8_t*)frame.RandomData );
+	mbedtls_aes_setkey_enc( &ctx, RandomNumberBuffer32, 256 );
+    mbedtls_aes_crypt_cbc( &ctx, MBEDTLS_AES_ENCRYPT, sizeof(RandomNumberBuffer32), IV, (uint8_t*)RandomNumberBuffer, (uint8_t*)buffer );
     mbedtls_aes_free( &ctx );
 
      printf(" 7 ");
-
-   esp_log_buffer_hex("frame",&frame,60);
-
+     printf(" RB ");
+    //esp_log_buffer_hex("Random",RandomNumberBuffer,32);
+    printf(" FR ");
+    //esp_log_buffer_hex("frame",&frame,60);
+    esp_log_buffer_hex("bufer",&buffer,1024);
    //-----------debug---------
   /*
   char str[3];
