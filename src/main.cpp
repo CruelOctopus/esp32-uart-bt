@@ -36,12 +36,14 @@
 
 #define UART_BUF_SIZE 128
 
-uint8_t RandomNumberBuffe32[32];
-uint8_t RandomNumberBuffe16[16];
+const char *key = "11223344556677889900aabbccddeeff11223344556677889900aabbccddeeff11223344556677889900aabbccddeeff11223344556677889900aabbccddeeff";
+const char *HexStringKeygAES = "11223344556677889900aabbccddeeff11223344556677889900aabbccddeeff";
+uint8_t RandomNumberBuffer32[32];
+uint8_t RandomNumberBuffer16[16];
 uint8_t IV[16];
 uint8_t AESKEY[32]; //256 bit key
 //uint8_t AESKEY[16]; //128 bit key
-
+uint8_t AESDEcryptResult[64];
 uint8_t hmacSHA256Result[32];
 
 uint8_t BKeyLen = 64;
@@ -122,6 +124,144 @@ void Hmac256Calculate(uint8_t *key, uint8_t keyLength, uint8_t *payload, uint8_t
   mbedtls_md_hmac_update(&ctx, (const unsigned char *)payload, payloadLength);
   mbedtls_md_hmac_finish(&ctx, hmacResult);
   mbedtls_md_free(&ctx);
+}
+void AESEncrypt(uint8_t *key, uint8_t DataLength, uint8_t *IV, uint8_t *payload, uint8_t *EncryptResult)
+{
+    mbedtls_aes_context ctx;
+	mbedtls_aes_init( &ctx );
+	mbedtls_aes_setkey_enc( &ctx, key, 256 );
+    mbedtls_aes_crypt_cbc( &ctx, MBEDTLS_AES_ENCRYPT, DataLength, IV, payload, EncryptResult );
+    mbedtls_aes_free( &ctx );
+}
+void AESDecrypt(uint8_t *key, uint8_t DataLength, uint8_t *IV, uint8_t *payload, uint8_t *DecryptResult)
+{
+    mbedtls_aes_context ctx;
+	mbedtls_aes_init( &ctx );
+	mbedtls_aes_setkey_enc( &ctx, key, 256 );
+    mbedtls_aes_crypt_cbc( &ctx, MBEDTLS_AES_DECRYPT, DataLength, IV, payload, DecryptResult );
+    mbedtls_aes_free( &ctx );
+}
+void StringHexToByte(uint8_t *InputData, uint8_t *bytearray, uint8_t arraylen)
+{
+  uint8_t b = 0, bt = 0;
+  uint8_t halfbyte = 0;
+  uint8_t j = 0;
+  if (arraylen % 2 == 0)
+  {
+    for (int i = 0; i < arraylen; i++)
+    {
+      bytearray[i] = 0;
+    }
+    for (int i = 0; i < arraylen * 2; i++)
+    {
+      switch (InputData[i])
+      {
+      case '0':
+      {
+        b = 0;
+        break;
+      };
+      case '1':
+      {
+        b = 1;
+        break;
+      };
+      case '2':
+      {
+        b = 2;
+        break;
+      };
+      case '3':
+      {
+        b = 3;
+        break;
+      };
+      case '4':
+      {
+        b = 4;
+        break;
+      };
+      case '5':
+      {
+        b = 5;
+        break;
+      };
+      case '6':
+      {
+        b = 6;
+        break;
+      };
+      case '7':
+      {
+        b = 7;
+        break;
+      };
+      case '8':
+      {
+        b = 8;
+        break;
+      };
+      case '9':
+      {
+        b = 9;
+        break;
+      };
+      case 'a':
+      {
+        b = 10;
+        break;
+      };
+      case 'b':
+      {
+        b = 11;
+        break;
+      };
+      case 'c':
+      {
+        b = 12;
+        break;
+      };
+      case 'd':
+      {
+        b = 13;
+        break;
+      };
+      case 'e':
+      {
+        b = 14;
+        break;
+      };
+      case 'f':
+      {
+        b = 15;
+        break;
+      };
+      }
+      if (halfbyte == 0)
+      {
+
+        bt = b << 4;
+        halfbyte = 1;
+      }
+      else
+      {
+        bt |= b;
+        bytearray[j] = bt;
+        j++;
+        halfbyte = 0;
+        bt = 0;
+      }
+    }
+  }
+}
+int XorByteArray(uint8_t * first, uint8_t *second,uint8_t length)
+{
+    int counter = 0;
+    for (int i = 0; i < length; i++)
+    {
+        counter += first[i] ^ second[i];
+    }
+  return counter;
 }
 extern "C" void app_main()
 {
@@ -247,35 +387,67 @@ extern "C" void app_main()
     gpio_set_level(BT_KEY, ESP_GPIO_LEVEL_LOW);
 
     //------------------main loop---------------
-    FirstFrame frame;
+    
+    FrameSetup FSetup;
+    FrameFirst FFirst;
+
     printf(" 1 ");
     bootloader_random_enable(); // when use wifi or bluetooth it must me disable
     printf(" 2 ");
-    GetRandomNumbers(RandomNumberBuffe32,32); //fill random buffer 
-    printf(" 3 ");
-    GetRandomNumbers(RandomNumberBuffe16,16); //fill random buffer 
-    printf(" 4 ");
-   // memset(frame.Synchro,SYNCHRO,8);
-    printf(" 5 ");
-    //uint32_t b = 0xaabbccdd;
+     
+    GetRandomNumbers(RandomNumberBuffer16,16); //fill random buffer for IV 16 bytes
+    StringHexToByte((uint8_t *)key,HMAC256ByteKeyForIV,BKeyLen); // Load HMAC key for IV 64 bytes
+    Hmac256Calculate(HMAC256ByteKeyForIV,sizeof(HMAC256ByteKeyForIV),RandomNumberBuffer16,sizeof(RandomNumberBuffer16),hmacSHA256Result); //Calculate HMAC for IV
+    memcpy(&IV,&hmacSHA256Result,16); //Copy Half HMAC into IV aes
     
-    frame.CRC32 = crc32(&frame,56,0);
-    printf(" 6 ");
+    printf(" 3 ");
+    
+    GetRandomNumbers(RandomNumberBuffer32,32); //fill random buffer 32 bytes
+    StringHexToByte((uint8_t *)key,HMAC256ByteKey,BKeyLen); // Load HMAC key for Cheack commands 64 bytes
+    Hmac256Calculate(HMAC256ByteKey,sizeof(HMAC256ByteKey),RandomNumberBuffer32,sizeof(RandomNumberBuffer32),hmacSHA256Result); //Calculate HMAC for Cheack commands
+    
+    StringHexToByte((uint8_t *)HexStringKeygAES,AESKEY,32); // Load AES key
 
+    printf(" 3 ");
+    
+    //memset(FFirst.Synchro,SYNCHRO,8);
+    //memcpy(&FFirst.AESIV,&RandomNumberBuffer16,16);
+    memcpy(&FFirst.RandomData,&RandomNumberBuffer32,32);
+    FFirst.CRC32 = crc32(&FFirst,56,0);
+    
+    memcpy(&FSetup.RandomData,&RandomNumberBuffer16,16);
+    FSetup.CRC32 = crc32(&FSetup,sizeof(FSetup.RandomData),0);
+
+    //-----------------Start dialog
+    uint8_t 
+    uart_write_bytes(UART_NUM_1,(const char *)&FSetup ,sizeof(FSetup));
+    len = uart_read_bytes(UART_NUM_1, UART_data, UART_BUF_SIZE, 300 / portTICK_RATE_MS);
+    if (len == 20)
+    {
+        FrameSetup Response;
+        memcpy(&Response,&UART_data,len);
+        if (Response.CRC32 == crc32(&Response,sizeof(Response.RandomData),0);
+        {
+            AESDecrypt(AESKEY,sizeof(Response.RandomData),IV,Response.RandomData,AESDEcryptResult);
+            if (XorByteArray((uint8_t*)&FSetup, AESDEcryptResult,sizeof(Response.RandomData)) == 0)
+            {
+                uart_write_bytes(UART_NUM_1,(const char *)&FFirst ,sizeof(FFirst));
+            }
+        }
+        
+    }
+    /*
     for (int i=0;i<32;i++){
         RandomNumberBuffer32[i] = i;
     }
     for (int i=0;i<16;i++){
         IV[i] = i;
     }
-
+    */
     uint8_t buffer[1024];
     memset(buffer,0x00,sizeof(buffer));
-    mbedtls_aes_context ctx;
-	mbedtls_aes_init( &ctx );
-	mbedtls_aes_setkey_enc( &ctx, RandomNumberBuffer32, 256 );
-    mbedtls_aes_crypt_cbc( &ctx, MBEDTLS_AES_ENCRYPT, sizeof(RandomNumberBuffer32), IV, (uint8_t*)RandomNumberBuffer, (uint8_t*)buffer );
-    mbedtls_aes_free( &ctx );
+
+    //AESEncrypt(AESKEY,sizeof(),IV,
 
      printf(" 7 ");
      printf(" RB ");
@@ -310,7 +482,7 @@ extern "C" void app_main()
   }
   */
 //-----------debug---------
-    uart_write_bytes(UART_NUM_1,(const char *)&frame ,sizeof(frame));
+   // uart_write_bytes(UART_NUM_1,(const char *)&frame ,sizeof(frame));
     while (true)
     {
         if (gpio_get_level(BT_STATE) == ESP_GPIO_LEVEL_HIGH)
